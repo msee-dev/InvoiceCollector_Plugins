@@ -37,6 +37,10 @@ class CursorPlugin(StripeProviderPlugin):
     def billing_portal_url(self) -> str:
         return "https://www.cursor.com/settings"
 
+    @property
+    def supported_login_methods(self) -> list[str]:
+        return ["email", "google", "github", "apple"]
+
     async def authenticate(self, page: Page, credentials: dict) -> None:
         """Log in to Cursor. Supports email/password, OAuth (Google/GitHub/Apple), and magic code."""
         try:
@@ -44,16 +48,15 @@ class CursorPlugin(StripeProviderPlugin):
             await page.wait_for_timeout(3000)
             logger.debug("cursor_auth_page", url=page.url)
 
-            # OAuth sign-in (Google, GitHub, Apple — Cursor doesn't support Microsoft)
+            # OAuth sign-in
             login_method = credentials.get("login_method", "email")
             if login_method != "email":
-                from src.oauth import handle_oauth_login, detect_supported_methods
-                supported = await detect_supported_methods(page)
-                if login_method not in supported:
+                if login_method not in self.supported_login_methods:
                     raise AuthenticationError(
                         f"Cursor does not support '{login_method}' sign-in. "
-                        f"Supported methods: {', '.join(supported)}"
+                        f"Supported: {', '.join(self.supported_login_methods)}"
                     )
+                from src.oauth import handle_oauth_login
                 await handle_oauth_login(
                     page, credentials,
                     expected_url_pattern="**cursor.com/**",

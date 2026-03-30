@@ -25,13 +25,22 @@ class AnthropicPlugin(StripeProviderPlugin):
     def billing_portal_url(self) -> str:
         return "https://console.anthropic.com/settings/billing"
 
-    async def authenticate(self, page: Page, credentials: dict) -> None:
-        """Log in to Anthropic Console with email/password and optional TOTP.
+    @property
+    def supported_login_methods(self) -> list[str]:
+        return ["email", "google"]
 
-        Anthropic uses a standard email + password form, followed by
-        optional 2FA verification.
-        """
+    async def authenticate(self, page: Page, credentials: dict) -> None:
+        """Log in to Anthropic Console. Supports email/password and Google sign-in."""
         try:
+            login_method = credentials.get("login_method", "email")
+            if login_method != "email":
+                from src.oauth import handle_oauth_login
+                await handle_oauth_login(
+                    page, credentials,
+                    expected_url_pattern="**console.anthropic.com/**",
+                )
+                return
+
             # Email step — Anthropic may show email first or combined form
             await page.wait_for_selector(
                 'input[type="email"], input[name="email"], '
