@@ -72,20 +72,28 @@ class GitHubPlugin(ProviderPlugin):
 
             if totp_input:
                 if credentials.get("totp_secret"):
+                    # Auto-fill from configured secret
                     totp = pyotp.TOTP(credentials["totp_secret"])
                     await page.fill('input[name="app_otp"]', totp.now())
                     await page.wait_for_load_state("networkidle")
                     logger.debug("github_totp_filled")
+                elif credentials.get("_totp_callback"):
+                    # Request code from web UI
+                    logger.info("github_2fa_prompt", message="Requesting TOTP code from web UI...")
+                    totp_callback = credentials["_totp_callback"]
+                    code = await totp_callback()
+                    await page.fill('input[name="app_otp"]', code)
+                    await page.wait_for_load_state("networkidle")
+                    logger.debug("github_totp_filled_from_ui")
                 else:
-                    # No TOTP secret configured — user must enter code manually
+                    # No TOTP secret and no callback — wait for manual entry in headed mode
                     is_headless = not await page.evaluate("() => !!window.outerWidth && window.outerWidth > 0")
                     if is_headless:
                         raise AuthenticationError(
                             "GitHub requires 2FA but no TOTP secret is configured. "
-                            "Set the TOTP secret in credentials, or use debug mode to enter the code manually."
+                            "Set the TOTP secret in credentials, or run from the web UI."
                         )
                     logger.info("github_2fa_waiting", message="Waiting for user to enter 2FA code...")
-                    # Wait until we leave the 2FA page
                     await page.wait_for_function(
                         "() => !document.querySelector('input[name=\"app_otp\"]')",
                         timeout=120_000,
