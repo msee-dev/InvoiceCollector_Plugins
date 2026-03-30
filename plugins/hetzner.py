@@ -33,7 +33,7 @@ class HetznerPlugin(ProviderPlugin):
             await page.fill('input[name="_username"]', credentials["email"])
             await page.fill('input[name="_password"]', credentials["password"])
             await page.click('button[type="submit"]')
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_timeout(3000)
 
             # TOTP if needed
             if credentials.get("totp_secret"):
@@ -42,7 +42,7 @@ class HetznerPlugin(ProviderPlugin):
                     totp = pyotp.TOTP(credentials["totp_secret"])
                     await page.fill('input[name="_totp"]', totp.now())
                     await page.click('button[type="submit"]')
-                    await page.wait_for_load_state("networkidle")
+                    await page.wait_for_timeout(3000)
 
         except Exception as exc:
             raise AuthenticationError(f"Hetzner login failed: {exc}") from exc
@@ -54,7 +54,7 @@ class HetznerPlugin(ProviderPlugin):
                 "https://console.hetzner.cloud/billing/invoices",
                 wait_until="domcontentloaded",
             )
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_timeout(3000)
         except Exception as exc:
             raise NavigationError(f"Hetzner invoices navigation failed: {exc}") from exc
 

@@ -63,6 +63,16 @@
       "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
     },
     {
+      "name": "google_services",
+      "description": "Collect invoices from Google Pay (YouTube Premium, Gemini, Google One, Workspace, Domains).",
+      "author": "msee-dev",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["google", "youtube", "gemini", "workspace", "google-one"],
+      "py_url": "https://raw.githubusercontent.com/msee-dev/InvoiceCollector_Plugins/main/plugins/google_workspace.py",
+      "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
+    },
+    {
       "name": "vercel",
       "description": "Collect invoices from Vercel via Stripe billing portal. Supports email/password login.",
       "author": "msee-dev",
