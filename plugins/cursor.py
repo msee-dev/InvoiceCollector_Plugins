@@ -43,18 +43,14 @@ class CursorPlugin(StripeProviderPlugin):
         user to solve it. In headless mode, raises a clear error.
         """
         try:
-            await page.wait_for_load_state("networkidle")
+            # Don't use networkidle — Cursor's page never stops polling
+            await page.wait_for_load_state("domcontentloaded")
+            # Give the JS app a moment to render
+            await page.wait_for_timeout(3000)
             logger.debug("cursor_auth_page", url=page.url)
 
-            # Check for Cloudflare Turnstile CAPTCHA
-            captcha = await page.query_selector(
-                'iframe[src*="challenges.cloudflare.com"], '
-                '#cf-turnstile, '
-                '.cf-turnstile, '
-                '[data-sitekey]'
-            )
-
             # Broad email selector — handles English and localized pages
+            # The WorkOS AuthKit form uses a plain input without type="email"
             email_selector = (
                 'input[type="email"], '
                 'input[name="email"], '
@@ -63,11 +59,16 @@ class CursorPlugin(StripeProviderPlugin):
                 'input[name="username"], '
                 'input[placeholder*="email" i], '
                 'input[placeholder*="e-mail" i], '
-                'input[placeholder*="mail" i]'
+                'input[placeholder*="mail" i], '
+                'input[data-testid="email-input"]'
             )
 
-            if captcha:
-                is_headless = await page.evaluate("() => !window.outerWidth")
+            # Check if we landed on a CAPTCHA gate (no email field visible)
+            email_visible = await page.query_selector(email_selector)
+
+            if not email_visible:
+                # Likely a Cloudflare Turnstile CAPTCHA blocking the form
+                is_headless = not await page.evaluate("() => !!window.outerWidth && window.outerWidth > 0")
                 if is_headless:
                     raise AuthenticationError(
                         "Cursor login has a Cloudflare CAPTCHA. "
@@ -75,17 +76,15 @@ class CursorPlugin(StripeProviderPlugin):
                         "After the first successful login, cookies will be saved to skip it next time."
                     )
 
-                logger.info("cursor_captcha_detected", message="Waiting for user to solve CAPTCHA...")
+                logger.info("cursor_captcha_detected", message="Waiting for email field to appear (solve CAPTCHA in browser)...")
                 try:
                     await page.wait_for_selector(email_selector, timeout=_CAPTCHA_TIMEOUT)
                     logger.info("cursor_captcha_solved")
                 except Exception:
                     raise AuthenticationError(
-                        "Timed out waiting for CAPTCHA to be solved. "
-                        "Please solve the Cloudflare challenge in the browser window."
+                        "Timed out waiting for email field. "
+                        "The login page may have a CAPTCHA — solve it in the browser window."
                     )
-            else:
-                await page.wait_for_selector(email_selector, timeout=30000)
 
             # Fill email
             await page.fill(email_selector, credentials["email"])
@@ -99,10 +98,12 @@ class CursorPlugin(StripeProviderPlugin):
                 'button:has-text("Sign in"), '
                 'button:has-text("Log in"), '
                 'button:has-text("Anmelden"), '
+                'button:has-text("Fortfahren"), '
                 'button[data-testid="submit"]'
             )
             await page.click(submit_selector)
-            await page.wait_for_load_state("networkidle")
+            # Wait for navigation but don't require full networkidle
+            await page.wait_for_timeout(3000)
 
             # Password step
             password_selector = 'input[type="password"]'
@@ -112,7 +113,7 @@ class CursorPlugin(StripeProviderPlugin):
                 logger.debug("cursor_password_filled")
 
                 await page.click(submit_selector)
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_timeout(3000)
             except Exception:
                 logger.debug("cursor_no_separate_password_step")
 
@@ -134,8 +135,28 @@ class CursorPlugin(StripeProviderPlugin):
                 except Exception:
                     logger.debug("cursor_no_totp_prompt")
 
-            # Verify we landed on cursor.com
-            await page.wait_for_url("**cursor.com/**", timeout=30000)
+            # After login, Cursor may show another Cloudflare CAPTCHA
+            # Check if we're still on authenticator.cursor.sh
+            if "cursor.com" not in page.url or "authenticator" in page.url:
+                # Check for CAPTCHA widget
+                is_headless = not await page.evaluate("() => !!window.outerWidth && window.outerWidth > 0")
+                if is_headless:
+                    raise AuthenticationError(
+                        "Post-login CAPTCHA detected. Run with debug mode (headed browser) "
+                        "to solve it. Cookies will be saved for future runs."
+                    )
+                logger.info("cursor_post_login_captcha", message="Waiting for post-login CAPTCHA or redirect...")
+                # Wait for either cursor.com redirect (CAPTCHA solved) or timeout
+                try:
+                    await page.wait_for_url("**cursor.com/**", timeout=_CAPTCHA_TIMEOUT)
+                except Exception:
+                    raise AuthenticationError(
+                        "Timed out waiting for redirect after login. "
+                        "If a CAPTCHA appeared, solve it in the browser window."
+                    )
+            else:
+                await page.wait_for_url("**cursor.com/**", timeout=15000)
+
             logger.debug("cursor_auth_complete", url=page.url)
 
         except AuthenticationError:
