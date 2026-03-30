@@ -249,28 +249,43 @@ class GitHubPlugin(ProviderPlugin):
                 if not url.startswith("http"):
                     url = f"https://github.com{url}"
 
-                # Try direct download first
+                logger.debug("github_downloading", id=invoice.invoice_id, url=url)
                 resp = await page.request.get(url)
                 body = await resp.body()
-                if len(body) > 0:
+                if body and body[:5].startswith(b"%PDF-"):
                     return body
 
-            # Fallback: click the download link in the invoice row
-            # Find the row by invoice ID, then click the last download icon
-            row = await page.query_selector(f'tr:has-text("{invoice.invoice_id}")')
+                # Invoice download URL may return a ZIP or redirect — try receipt PDF
+                logger.debug("github_not_pdf", id=invoice.invoice_id, size=len(body), header=body[:30])
+
+            # Fallback: find receipt PDF link from the page
+            row = await page.query_selector(f'li.Box-row:has-text("{invoice.invoice_id}")')
             if row:
-                # Try Invoice column first (last), then Receipt column
+                # Try PDF link first
+                pdf_link = await row.query_selector('a[href$=".pdf"]')
+                if pdf_link:
+                    href = await pdf_link.get_attribute("href") or ""
+                    url = href if href.startswith("http") else f"https://github.com{href}"
+                    logger.debug("github_trying_receipt_pdf", id=invoice.invoice_id, url=url)
+                    resp = await page.request.get(url)
+                    body = await resp.body()
+                    if body and body[:5].startswith(b"%PDF-"):
+                        return body
+
+                # Try all links in the row
                 links = await row.query_selector_all("a[href]")
-                for link in reversed(links):
+                for link in links:
                     href = await link.get_attribute("href") or ""
-                    if href:
-                        dl_url = href if href.startswith("http") else f"https://github.com{href}"
+                    if not href or href == "#":
+                        continue
+                    dl_url = href if href.startswith("http") else f"https://github.com{href}"
+                    if ".pdf" in dl_url or "/receipt/" in dl_url:
                         resp = await page.request.get(dl_url)
                         body = await resp.body()
-                        if len(body) > 100:  # Skip tiny error responses
+                        if body and body[:5].startswith(b"%PDF-"):
                             return body
 
-            raise DownloadError(f"No download link found for {invoice.invoice_id}")
+            raise DownloadError(f"No PDF download found for {invoice.invoice_id}")
         except DownloadError:
             raise
         except Exception as exc:
