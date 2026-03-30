@@ -50,23 +50,30 @@ class HetznerPlugin(ProviderPlugin):
             if not username_field:
                 logger.info("hetzner_pow_challenge", url=page.url, message="Waiting for PoW challenge to complete...")
 
-                # In headless mode, the PoW should auto-solve
-                # Wait up to 60s for the login form to appear
+                # Wait for verification to succeed (check body text periodically)
+                for _ in range(40):  # up to ~80 seconds
+                    await page.wait_for_timeout(2000)
+                    body_text = (await page.text_content("body") or "").lower()
+                    if "verification successful" in body_text or "erfolgreich" in body_text:
+                        logger.info("hetzner_pow_passed", message="PoW verification successful, navigating to login...")
+                        await page.wait_for_timeout(3000)
+                        # If not auto-redirected, navigate manually
+                        if "login" not in page.url:
+                            await page.goto(self.login_url, wait_until="domcontentloaded")
+                            await page.wait_for_timeout(3000)
+                        break
+                    # Check if login form appeared
+                    username_field = await page.query_selector('input[name="_username"]')
+                    if username_field:
+                        break
+
+                # Final check — login form must be present
                 try:
-                    await page.wait_for_selector('input[name="_username"]', timeout=60000)
+                    await page.wait_for_selector('input[name="_username"]', timeout=15000)
                 except Exception:
-                    # Check if we're stuck on PoW
-                    if "/_ray/pow" in page.url or "_ray" in page.url:
-                        is_headless = not await page.evaluate("() => !!window.outerWidth && window.outerWidth > 0")
-                        if is_headless:
-                            raise AuthenticationError(
-                                "Hetzner PoW challenge not completing in headless mode. "
-                                "Try with debug mode enabled."
-                            )
-                        # In headed mode, wait longer for user
-                        await page.wait_for_selector('input[name="_username"]', timeout=120000)
-                    else:
-                        raise
+                    raise AuthenticationError(
+                        f"Hetzner login form not found after PoW challenge. Page: {page.url}"
+                    )
 
             # Fill login form
             await page.fill('input[name="_username"]', credentials["email"])
