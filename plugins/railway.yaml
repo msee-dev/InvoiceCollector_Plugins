@@ -1,0 +1,21 @@
+name: railway
+login_url: https://railway.app/login
+billing_portal_url: https://railway.app/account/billing
+
+auth_steps:
+  - action: fill
+    selector: 'input[type="email"], input[name="email"], input[autocomplete="email"]'
+    value: "{{email}}"
+
+  - action: fill
+    selector: 'input[type="password"]'
+    value: "{{password}}"
+
+  - action: click
+    selector: 'button[type="submit"]'
+
+  - action: wait_for_navigation
+
+  - action: totp
+    selector: 'input[name="code"], input[inputmode="numeric"], input[autocomplete="one-time-code"]'
+    submit_selector: 'button[type="submit"]'

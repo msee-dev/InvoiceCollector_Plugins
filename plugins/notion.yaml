@@ -1,0 +1,26 @@
+name: notion
+login_url: https://www.notion.so/login
+billing_portal_url: https://www.notion.so/settings/billing
+
+auth_steps:
+  - action: fill
+    selector: 'input[type="email"], input[name="email"], input[autocomplete="email"]'
+    value: "{{email}}"
+
+  - action: click
+    selector: 'button[type="submit"], [role="button"][tabindex="0"]'
+
+  - action: wait_for_navigation
+
+  - action: fill
+    selector: 'input[type="password"]'
+    value: "{{password}}"
+
+  - action: click
+    selector: 'button[type="submit"], [role="button"][tabindex="0"]'
+
+  - action: wait_for_navigation
+
+  - action: totp
+    selector: 'input[name="code"], input[inputmode="numeric"], input[autocomplete="one-time-code"]'
+    submit_selector: 'button[type="submit"]'

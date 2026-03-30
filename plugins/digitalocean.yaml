@@ -1,0 +1,37 @@
+name: digitalocean
+login_url: https://cloud.digitalocean.com/login
+billing_portal_url: ""
+
+auth_steps:
+  - action: fill
+    selector: 'input[type="email"], input[name="email"], input[autocomplete="email"]'
+    value: "{{email}}"
+
+  - action: fill
+    selector: 'input[type="password"]'
+    value: "{{password}}"
+
+  - action: click
+    selector: 'button[type="submit"]'
+
+  - action: wait_for_navigation
+
+  - action: totp
+    selector: 'input[name="code"], input[inputmode="numeric"], input[autocomplete="one-time-code"]'
+    submit_selector: 'button[type="submit"]'
+
+invoice_steps:
+  - action: goto
+    url: https://cloud.digitalocean.com/account/billing
+  - action: wait_for_selector
+    selector: 'table tbody tr, [data-testid="billing-history"] tr'
+
+invoice_table:
+  row_selector: 'table tbody tr, [data-testid="billing-history"] tbody tr'
+  date_column: 0
+  id_column: 1
+  amount_column: 2
+  date_format: "%b %d, %Y"
+  pdf_link_selector: 'a[href*="pdf"], a[href*="invoice"], a[href*="download"]'
+
+base_url: https://cloud.digitalocean.com
