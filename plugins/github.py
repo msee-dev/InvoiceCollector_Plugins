@@ -187,6 +187,11 @@ class GitHubPlugin(ProviderPlugin):
                 amount_el = await row.query_selector(".amount")
                 amount = (await amount_el.text_content() or "").strip() if amount_el else None
 
+                # Skip refunds (negative amounts) — they don't have downloadable invoices
+                if amount and "-" in amount:
+                    logger.debug("github_skipping_refund", id=invoice_id, amount=amount)
+                    continue
+
                 # Download URL — prefer invoice over receipt
                 download_url = None
 
@@ -200,6 +205,10 @@ class GitHubPlugin(ProviderPlugin):
                     pdf_link = await row.query_selector('a[href$=".pdf"]')
                     if pdf_link:
                         download_url = await pdf_link.get_attribute("href")
+
+                if not download_url:
+                    logger.debug("github_no_download_link", id=invoice_id)
+                    continue
 
                 invoices.append(
                     InvoiceInfo(
