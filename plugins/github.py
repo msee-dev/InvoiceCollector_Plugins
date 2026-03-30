@@ -175,8 +175,10 @@ class GitHubPlugin(ProviderPlugin):
                 if invoice_date is None:
                     continue
 
-                # ID
-                id_el = await row.query_selector(".id code span, .id code, .id")
+                # ID — use the specific span to avoid tooltip text
+                id_el = await row.query_selector('span[id^="short-transaction-id"]')
+                if not id_el:
+                    id_el = await row.query_selector(".id code span, .id code, .id")
                 invoice_id = (await id_el.text_content() or "").strip() if id_el else ""
                 if not invoice_id:
                     invoice_id = f"GH-{invoice_date.isoformat()}"
@@ -185,21 +187,21 @@ class GitHubPlugin(ProviderPlugin):
                 amount_el = await row.query_selector(".amount")
                 amount = (await amount_el.text_content() or "").strip() if amount_el else None
 
-                # Download URL — try invoice link first, then receipt
+                # Download URL — PDF link first (href ending in .pdf)
                 download_url = None
-                for selector in ['a[href*="invoice"]', 'a[href*="receipt"]', 'a[href*="download"]']:
-                    link = await row.query_selector(selector)
-                    if link:
-                        download_url = await link.get_attribute("href")
-                        if download_url:
-                            break
+                pdf_link = await row.query_selector('a[href$=".pdf"]')
+                if pdf_link:
+                    download_url = await pdf_link.get_attribute("href")
 
-                # Fallback: any link with a download icon
+                # Fallback: receipt/invoice links
                 if not download_url:
-                    links = await row.query_selector_all("a[href]")
-                    for link in links:
-                        href = await link.get_attribute("href") or ""
-                        if "/receipt" in href or "/invoice" in href or "pdf" in href:
+                    for selector in ['a[href*="receipt"]', 'a[href*="invoice"]']:
+                        link = await row.query_selector(selector)
+                        if link:
+                            href = await link.get_attribute("href") or ""
+                            # Append .pdf if not already
+                            if href and not href.endswith(".pdf"):
+                                href += ".pdf"
                             download_url = href
                             break
 
