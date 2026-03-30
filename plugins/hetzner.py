@@ -45,34 +45,21 @@ class HetznerPlugin(ProviderPlugin):
             await page.wait_for_load_state("domcontentloaded")
             await page.wait_for_timeout(3000)
 
-            # Check if we're on the PoW challenge page
-            username_field = await page.query_selector('input[name="_username"]')
-            if not username_field:
-                logger.info("hetzner_pow_challenge", url=page.url, message="Waiting for PoW challenge to complete...")
-
-                # Wait for verification to succeed (check body text periodically)
-                for _ in range(40):  # up to ~80 seconds
-                    await page.wait_for_timeout(2000)
-                    body_text = (await page.text_content("body") or "").lower()
-                    if "verification successful" in body_text or "erfolgreich" in body_text:
-                        logger.info("hetzner_pow_passed", message="PoW verification successful, navigating to login...")
-                        await page.wait_for_timeout(3000)
-                        # If not auto-redirected, navigate manually
-                        if "login" not in page.url:
-                            await page.goto(self.login_url, wait_until="domcontentloaded")
-                            await page.wait_for_timeout(3000)
-                        break
-                    # Check if login form appeared
-                    username_field = await page.query_selector('input[name="_username"]')
-                    if username_field:
-                        break
-
-                # Final check — login form must be present
+            # Wait for login form — may be behind a PoW challenge that
+            # takes 60+ seconds and causes page navigations
+            logger.info("hetzner_waiting_login_form", url=page.url)
+            try:
+                await page.wait_for_selector('input[name="_username"]', timeout=90000)
+            except Exception:
+                # PoW might have passed but didn't redirect — try navigating manually
+                logger.info("hetzner_manual_nav_after_pow", url=page.url)
+                await page.goto(self.login_url, wait_until="domcontentloaded")
+                await page.wait_for_timeout(5000)
                 try:
-                    await page.wait_for_selector('input[name="_username"]', timeout=15000)
+                    await page.wait_for_selector('input[name="_username"]', timeout=90000)
                 except Exception:
                     raise AuthenticationError(
-                        f"Hetzner login form not found after PoW challenge. Page: {page.url}"
+                        f"Hetzner login form not found. Still on: {page.url}"
                     )
 
             # Fill login form
