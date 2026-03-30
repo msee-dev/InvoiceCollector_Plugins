@@ -38,11 +38,22 @@ class CursorPlugin(StripeProviderPlugin):
         return "https://www.cursor.com/settings"
 
     async def authenticate(self, page: Page, credentials: dict) -> None:
-        """Log in to Cursor. Tries password first, falls back to email code."""
+        """Log in to Cursor. Supports email/password, OAuth (Google/GitHub/Apple), and magic code."""
         try:
             await page.wait_for_load_state("domcontentloaded")
             await page.wait_for_timeout(3000)
             logger.debug("cursor_auth_page", url=page.url)
+
+            # OAuth sign-in (Google, GitHub, Microsoft, Apple)
+            login_method = credentials.get("login_method", "email")
+            if login_method != "email":
+                from src.oauth import handle_oauth_login
+                await handle_oauth_login(
+                    page, credentials,
+                    expected_url_pattern="**cursor.com/**",
+                )
+                await self._wait_for_cursor_redirect(page)
+                return
 
             # Email selector — broad for localized pages
             email_selector = (
