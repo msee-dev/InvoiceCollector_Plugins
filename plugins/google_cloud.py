@@ -1,5 +1,11 @@
-"""Google Cloud Console billing invoice collector plugin."""
+"""Google Cloud Console billing invoice collector plugin.
 
+Requires stealth mode: Google actively blocks automated browsers from their
+sign-in flow. The orchestrator applies playwright-stealth patches when
+requires_stealth is True.
+"""
+
+import random
 import re
 from datetime import date, datetime
 
@@ -15,6 +21,35 @@ from src.plugin_base import (
     escape_selector_text,
 )
 
+# Google sign-in block page indicators (language-agnostic)
+_BLOCK_INDICATORS = [
+    "accounts.google.com/v3/signin/rejected",
+    "accounts.google.com/signin/v2/deniedsignin",
+    "identifier?dsh=",
+]
+
+
+async def _human_delay(page: Page, min_ms: int = 300, max_ms: int = 1200) -> None:
+    """Wait a random human-like interval between actions."""
+    await page.wait_for_timeout(random.randint(min_ms, max_ms))
+
+
+async def _detect_sign_in_block(page: Page) -> bool:
+    """Check if Google blocked the sign-in as 'insecure browser'."""
+    url = page.url
+    if any(indicator in url for indicator in _BLOCK_INDICATORS):
+        return True
+    body = await page.text_content("body") or ""
+    block_phrases = [
+        "this browser or app may not be secure",
+        "dieser browser oder diese app ist möglicherweise nicht sicher",
+        "anmeldung nicht möglich",
+        "couldn't sign you in",
+        "ce navigateur ou cette application n'est peut-être pas sécurisé",
+    ]
+    body_lower = body.lower()
+    return any(phrase in body_lower for phrase in block_phrases)
+
 
 class GoogleCloudPlugin(ProviderPlugin):
     """Collects invoices from Google Cloud Console Billing."""
@@ -27,54 +62,154 @@ class GoogleCloudPlugin(ProviderPlugin):
     def login_url(self) -> str:
         return "https://accounts.google.com/signin"
 
+    @property
+    def requires_stealth(self) -> bool:
+        return True
+
     async def authenticate(self, page: Page, credentials: dict) -> None:
         """Log in to Google with email, password, and optional TOTP.
 
-        Google uses a multi-step login flow: email first, then password,
-        then optional 2FA challenge.
+        Uses human-like delays between actions to reduce bot detection risk.
         """
         try:
             # Email step
             await page.wait_for_selector(
                 'input[type="email"], input#identifierId', timeout=15000
             )
+            await _human_delay(page, 500, 1000)
             await page.fill(
                 'input[type="email"], input#identifierId', credentials["email"]
             )
+            await _human_delay(page, 300, 800)
             await page.click(
-                'button#identifierNext, button:has-text("Next")'
+                'button#identifierNext, '
+                'button:has-text("Next"), '
+                'button:has-text("Weiter"), '
+                'button:has-text("Suivant"), '
+                'button:has-text("Siguiente"), '
+                'button:has-text("Avanti")'
             )
-            await page.wait_for_load_state("networkidle")
+            await _human_delay(page, 2000, 4000)
+
+            # Check for sign-in block after email step
+            if await _detect_sign_in_block(page):
+                raise AuthenticationError(
+                    "Google blocked automated sign-in. "
+                    "Try running with --headed to complete login manually, "
+                    "then subsequent runs can reuse the saved session."
+                )
+
+            # Handle passkey/security key challenge — click "Try another way"
+            if "challenge" in page.url:
+                other_btn = await page.query_selector(
+                    'button:has-text("Andere Option"), '
+                    'button:has-text("Try another way"), '
+                    'button:has-text("Essayer autrement"), '
+                    '[data-action="selectChallenge"]'
+                )
+                if other_btn:
+                    await other_btn.click()
+                    await _human_delay(page, 2000, 3000)
+
+                pw_option = await page.query_selector(
+                    '[data-challengetype="1"], '
+                    'li:has-text("Passwort eingeben"), '
+                    'li:has-text("Enter your password"), '
+                    'li:has-text("Saisissez votre mot de passe")'
+                )
+                if pw_option:
+                    await pw_option.click()
+                    await _human_delay(page, 2000, 3000)
 
             # Password step
             await page.wait_for_selector(
                 'input[type="password"], input[name="Passwd"]', timeout=15000
             )
+            await _human_delay(page, 500, 1000)
             await page.fill(
                 'input[type="password"], input[name="Passwd"]',
                 credentials["password"],
             )
+            await _human_delay(page, 300, 800)
             await page.click(
-                'button#passwordNext, button:has-text("Next")'
+                'button#passwordNext, '
+                'button:has-text("Next"), '
+                'button:has-text("Weiter"), '
+                'button:has-text("Suivant"), '
+                'button:has-text("Siguiente"), '
+                'button:has-text("Avanti")'
             )
-            await page.wait_for_load_state("networkidle")
+            await _human_delay(page, 3000, 5000)
 
-            # TOTP if configured
-            if credentials.get("totp_secret"):
-                totp_input = await page.query_selector(
-                    'input[name="totpPin"], input#totpPin, '
-                    'input[type="tel"][aria-label*="code"]'
+            # Check for sign-in block after password step
+            if await _detect_sign_in_block(page):
+                raise AuthenticationError(
+                    "Google blocked automated sign-in after password entry. "
+                    "Try running with --headed to complete login manually."
                 )
-                if totp_input:
-                    totp = pyotp.TOTP(credentials["totp_secret"])
-                    await totp_input.fill(totp.now())
-                    await page.click(
-                        'button#totpNext, button:has-text("Next")'
+
+            # Handle TOTP / 2FA challenge if prompted
+            totp_sel = (
+                'input[name="totpPin"], input#totpPin, '
+                'input[type="tel"][aria-label], '
+                'input[inputmode="numeric"], input[autocomplete="one-time-code"]'
+            )
+
+            if "challenge" in page.url:
+                # If on passkey 2FA page, click "Choose another option" first
+                if "challenge/pk" in page.url or "challenge/ipp" in page.url:
+                    other_btn = await page.query_selector(
+                        'button:has-text("Andere Option"), '
+                        'button:has-text("Try another way"), '
+                        'a:has-text("Andere Option"), '
+                        'a:has-text("Try another way")'
                     )
-                    await page.wait_for_load_state("networkidle")
+                    if other_btn:
+                        await other_btn.click()
+                        await _human_delay(page, 2000, 3000)
+
+                if "challenge/selection" in page.url:
+                    totp_option = await page.query_selector(
+                        '[data-challengetype="6"], '
+                        'li:has-text("Google Authenticator"), '
+                        'li:has-text("Authenticator"), '
+                        'li:has-text("Bestätigung in zwei Schritten")'
+                    )
+                    if totp_option:
+                        await totp_option.click()
+                        await _human_delay(page, 2000, 3000)
+
+                try:
+                    await page.wait_for_selector(totp_sel, timeout=10000)
+                except Exception:
+                    pass
+
+            totp_input = await page.query_selector(totp_sel)
+            if totp_input:
+                if credentials.get("totp_secret"):
+                    secret = credentials["totp_secret"].replace(" ", "").replace("-", "").strip().upper()
+                    code = pyotp.TOTP(secret).now()
+                elif credentials.get("_totp_callback"):
+                    code = await credentials["_totp_callback"]()
+                else:
+                    raise AuthenticationError(
+                        "Google requires 2FA but no TOTP secret or callback configured. "
+                        "Set GOOGLE_CLOUD_TOTP_SECRET in .env or use the web UI."
+                    )
+
+                await _human_delay(page, 500, 1000)
+                await totp_input.fill(code)
+                await _human_delay(page, 300, 800)
+                await page.click(
+                    'button#totpNext, '
+                    'button:has-text("Next"), '
+                    'button:has-text("Weiter"), '
+                    'button:has-text("Suivant")'
+                )
+                await _human_delay(page, 2000, 4000)
 
             # Wait for redirect to Google services
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_load_state("domcontentloaded")
 
         except AuthenticationError:
             raise
@@ -82,18 +217,13 @@ class GoogleCloudPlugin(ProviderPlugin):
             raise AuthenticationError(f"Google login failed: {exc}") from exc
 
     async def navigate_to_invoices(self, page: Page) -> None:
-        """Navigate to the Google Cloud billing documents page.
-
-        Uses the billing account ID from credentials if available,
-        otherwise navigates to the billing overview which lists accounts.
-        """
+        """Navigate to the Google Cloud billing documents page."""
         try:
-            # Navigate to Cloud Console billing transactions/documents
             await page.goto(
                 "https://console.cloud.google.com/billing",
                 wait_until="domcontentloaded",
             )
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_timeout(5000)
 
             # Look for and click into "Transactions" or "Documents" tab
             docs_link = await page.query_selector(
@@ -103,7 +233,7 @@ class GoogleCloudPlugin(ProviderPlugin):
             )
             if docs_link:
                 await docs_link.click()
-                await page.wait_for_load_state("networkidle")
+                await page.wait_for_timeout(3000)
 
         except NavigationError:
             raise
@@ -133,8 +263,6 @@ class GoogleCloudPlugin(ProviderPlugin):
                 if len(cells) < 3:
                     continue
 
-                # Extract text from cells — GCP typically shows:
-                # Document number | Date | Type | Amount | Status
                 texts = []
                 for cell in cells:
                     texts.append((await cell.text_content() or "").strip())
@@ -148,7 +276,7 @@ class GoogleCloudPlugin(ProviderPlugin):
                 if invoice_date is None:
                     continue
 
-                # Find invoice ID (typically starts with a number or has "INV" pattern)
+                # Find invoice ID
                 invoice_id = None
                 for text in texts:
                     if re.match(r"^\d{4,}", text) or "INV" in text.upper():
@@ -192,11 +320,11 @@ class GoogleCloudPlugin(ProviderPlugin):
     def _parse_date(text: str) -> date | None:
         """Parse date formats used in GCP billing."""
         for fmt in (
-            "%b %d, %Y",    # "Mar 01, 2026"
-            "%B %d, %Y",    # "March 01, 2026"
-            "%Y-%m-%d",     # "2026-03-01"
-            "%m/%d/%Y",     # "03/01/2026"
-            "%d %b %Y",     # "01 Mar 2026"
+            "%b %d, %Y",
+            "%B %d, %Y",
+            "%Y-%m-%d",
+            "%m/%d/%Y",
+            "%d %b %Y",
         ):
             try:
                 return datetime.strptime(text.strip(), fmt).date()

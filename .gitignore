@@ -1,0 +1,7 @@
+plugins/__pycache__/anthropic.cpython-313.pyc
+plugins/__pycache__/aws.cpython-313.pyc
+plugins/__pycache__/cursor.cpython-313.pyc
+plugins/__pycache__/github.cpython-313.pyc
+plugins/__pycache__/google_cloud.cpython-313.pyc
+plugins/__pycache__/google_workspace.cpython-313.pyc
+plugins/__pycache__/hetzner.cpython-313.pyc
