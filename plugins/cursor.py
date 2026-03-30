@@ -54,6 +54,18 @@ class CursorPlugin(StripeProviderPlugin):
                 '[data-sitekey]'
             )
 
+            # Broad email selector — handles English and localized pages
+            email_selector = (
+                'input[type="email"], '
+                'input[name="email"], '
+                'input[autocomplete="email"], '
+                'input[autocomplete="username"], '
+                'input[name="username"], '
+                'input[placeholder*="email" i], '
+                'input[placeholder*="e-mail" i], '
+                'input[placeholder*="mail" i]'
+            )
+
             if captcha:
                 is_headless = await page.evaluate("() => !window.outerWidth")
                 if is_headless:
@@ -64,16 +76,6 @@ class CursorPlugin(StripeProviderPlugin):
                     )
 
                 logger.info("cursor_captcha_detected", message="Waiting for user to solve CAPTCHA...")
-                # Wait for the CAPTCHA page to disappear (user solves it)
-                # The email input appearing means CAPTCHA was solved
-                email_selector = (
-                    'input[type="email"], '
-                    'input[name="email"], '
-                    'input[autocomplete="email"], '
-                    'input[autocomplete="username"], '
-                    'input[name="username"], '
-                    'input[placeholder*="email" i]'
-                )
                 try:
                     await page.wait_for_selector(email_selector, timeout=_CAPTCHA_TIMEOUT)
                     logger.info("cursor_captcha_solved")
@@ -83,29 +85,23 @@ class CursorPlugin(StripeProviderPlugin):
                         "Please solve the Cloudflare challenge in the browser window."
                     )
             else:
-                # No CAPTCHA — wait for the email input directly
-                email_selector = (
-                    'input[type="email"], '
-                    'input[name="email"], '
-                    'input[autocomplete="email"], '
-                    'input[autocomplete="username"], '
-                    'input[name="username"], '
-                    'input[placeholder*="email" i]'
-                )
                 await page.wait_for_selector(email_selector, timeout=30000)
 
             # Fill email
             await page.fill(email_selector, credentials["email"])
             logger.debug("cursor_email_filled")
 
-            # Click continue/submit
-            await page.click(
+            # Click continue/submit — handles localized button text
+            submit_selector = (
                 'button[type="submit"], '
                 'button:has-text("Continue"), '
+                'button:has-text("Weiter"), '
                 'button:has-text("Sign in"), '
                 'button:has-text("Log in"), '
+                'button:has-text("Anmelden"), '
                 'button[data-testid="submit"]'
             )
+            await page.click(submit_selector)
             await page.wait_for_load_state("networkidle")
 
             # Password step
@@ -115,12 +111,7 @@ class CursorPlugin(StripeProviderPlugin):
                 await page.fill(password_selector, credentials["password"])
                 logger.debug("cursor_password_filled")
 
-                await page.click(
-                    'button[type="submit"], '
-                    'button:has-text("Continue"), '
-                    'button:has-text("Sign in"), '
-                    'button:has-text("Log in")'
-                )
+                await page.click(submit_selector)
                 await page.wait_for_load_state("networkidle")
             except Exception:
                 logger.debug("cursor_no_separate_password_step")
