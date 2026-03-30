@@ -187,12 +187,7 @@ class GitHubPlugin(ProviderPlugin):
                 amount_el = await row.query_selector(".amount")
                 amount = (await amount_el.text_content() or "").strip() if amount_el else None
 
-                # Skip refunds (negative amounts) — they don't have downloadable invoices
-                if amount and "-" in amount:
-                    logger.debug("github_skipping_refund", id=invoice_id, amount=amount)
-                    continue
-
-                # Download URL — prefer invoice over receipt
+                # Download URL — prefer invoice, fall back to receipt (for refunds)
                 download_url = None
 
                 # 1. Invoice: <invoice-download data-url="...">
@@ -200,14 +195,23 @@ class GitHubPlugin(ProviderPlugin):
                 if inv_dl:
                     download_url = await inv_dl.get_attribute("data-url")
 
-                # 2. Fallback: receipt PDF link
+                # 2. Receipt PDF (refunds only have receipts, not invoices)
                 if not download_url:
                     pdf_link = await row.query_selector('a[href$=".pdf"]')
                     if pdf_link:
                         download_url = await pdf_link.get_attribute("href")
 
+                # 3. Receipt HTML → append .pdf
                 if not download_url:
-                    logger.debug("github_no_download_link", id=invoice_id)
+                    receipt_link = await row.query_selector('a[href*="/receipt/"]')
+                    if receipt_link:
+                        href = await receipt_link.get_attribute("href") or ""
+                        if not href.endswith(".pdf"):
+                            href += ".pdf"
+                        download_url = href
+
+                if not download_url:
+                    logger.warning("github_no_download_link", id=invoice_id)
                     continue
 
                 invoices.append(
