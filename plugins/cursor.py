@@ -3,6 +3,10 @@
 Auth flow: cursor.com/login redirects through WorkOS AuthKit to
 authenticator.cursor.sh where the actual email/password form lives.
 After auth, we land back on cursor.com and can reach Stripe billing.
+
+NOTE: Cursor uses a Cloudflare Turnstile CAPTCHA on the login page.
+On the first run, use debug/headed mode to solve it manually.
+After that, saved cookies will bypass the CAPTCHA on subsequent runs.
 """
 
 import pyotp
@@ -12,6 +16,9 @@ from playwright.async_api import Page
 from src.plugin_base import AuthenticationError, StripeProviderPlugin
 
 logger = structlog.get_logger()
+
+# Max time to wait for user to solve CAPTCHA in headed mode
+_CAPTCHA_TIMEOUT = 120_000  # 2 minutes
 
 
 class CursorPlugin(StripeProviderPlugin):
@@ -23,7 +30,6 @@ class CursorPlugin(StripeProviderPlugin):
 
     @property
     def login_url(self) -> str:
-        # Use cursor.com/login which bootstraps the full WorkOS auth flow
         return "https://www.cursor.com/login"
 
     @property
@@ -31,24 +37,64 @@ class CursorPlugin(StripeProviderPlugin):
         return "https://www.cursor.com/settings"
 
     async def authenticate(self, page: Page, credentials: dict) -> None:
-        """Log in to Cursor via WorkOS AuthKit with email/password and optional TOTP."""
+        """Log in to Cursor via WorkOS AuthKit with email/password and optional TOTP.
+
+        Handles Cloudflare Turnstile CAPTCHA: in headed mode, waits for the
+        user to solve it. In headless mode, raises a clear error.
+        """
         try:
-            # The login URL redirects through WorkOS to authenticator.cursor.sh
-            # Wait for the auth page to fully load (may take a few redirects)
             await page.wait_for_load_state("networkidle")
             logger.debug("cursor_auth_page", url=page.url)
 
-            # Wait for email input — WorkOS AuthKit uses various input patterns
-            email_selector = (
-                'input[type="email"], '
-                'input[name="email"], '
-                'input[autocomplete="email"], '
-                'input[autocomplete="username"], '
-                'input[name="username"], '
-                'input[placeholder*="email" i], '
-                'input[placeholder*="Email" i]'
+            # Check for Cloudflare Turnstile CAPTCHA
+            captcha = await page.query_selector(
+                'iframe[src*="challenges.cloudflare.com"], '
+                '#cf-turnstile, '
+                '.cf-turnstile, '
+                '[data-sitekey]'
             )
-            await page.wait_for_selector(email_selector, timeout=30000)
+
+            if captcha:
+                is_headless = await page.evaluate("() => !window.outerWidth")
+                if is_headless:
+                    raise AuthenticationError(
+                        "Cursor login has a Cloudflare CAPTCHA. "
+                        "Run with debug mode enabled (headed browser) to solve it manually. "
+                        "After the first successful login, cookies will be saved to skip it next time."
+                    )
+
+                logger.info("cursor_captcha_detected", message="Waiting for user to solve CAPTCHA...")
+                # Wait for the CAPTCHA page to disappear (user solves it)
+                # The email input appearing means CAPTCHA was solved
+                email_selector = (
+                    'input[type="email"], '
+                    'input[name="email"], '
+                    'input[autocomplete="email"], '
+                    'input[autocomplete="username"], '
+                    'input[name="username"], '
+                    'input[placeholder*="email" i]'
+                )
+                try:
+                    await page.wait_for_selector(email_selector, timeout=_CAPTCHA_TIMEOUT)
+                    logger.info("cursor_captcha_solved")
+                except Exception:
+                    raise AuthenticationError(
+                        "Timed out waiting for CAPTCHA to be solved. "
+                        "Please solve the Cloudflare challenge in the browser window."
+                    )
+            else:
+                # No CAPTCHA — wait for the email input directly
+                email_selector = (
+                    'input[type="email"], '
+                    'input[name="email"], '
+                    'input[autocomplete="email"], '
+                    'input[autocomplete="username"], '
+                    'input[name="username"], '
+                    'input[placeholder*="email" i]'
+                )
+                await page.wait_for_selector(email_selector, timeout=30000)
+
+            # Fill email
             await page.fill(email_selector, credentials["email"])
             logger.debug("cursor_email_filled")
 
@@ -62,7 +108,7 @@ class CursorPlugin(StripeProviderPlugin):
             )
             await page.wait_for_load_state("networkidle")
 
-            # Password step — may be on same page or a new page
+            # Password step
             password_selector = 'input[type="password"]'
             try:
                 await page.wait_for_selector(password_selector, timeout=15000)
@@ -77,7 +123,6 @@ class CursorPlugin(StripeProviderPlugin):
                 )
                 await page.wait_for_load_state("networkidle")
             except Exception:
-                # Some flows combine email+password on one page
                 logger.debug("cursor_no_separate_password_step")
 
             # TOTP if configured
@@ -96,10 +141,9 @@ class CursorPlugin(StripeProviderPlugin):
                     await page.click('button[type="submit"]')
                     await page.wait_for_load_state("networkidle")
                 except Exception:
-                    # TOTP not prompted — might not be required
                     logger.debug("cursor_no_totp_prompt")
 
-            # Verify we landed on cursor.com (allow time for final redirect)
+            # Verify we landed on cursor.com
             await page.wait_for_url("**cursor.com/**", timeout=30000)
             logger.debug("cursor_auth_complete", url=page.url)
 
