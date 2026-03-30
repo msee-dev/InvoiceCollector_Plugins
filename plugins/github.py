@@ -64,30 +64,54 @@ class GitHubPlugin(ProviderPlugin):
             await page.click('input[type="submit"]')
             await page.wait_for_load_state("networkidle")
 
-            # TOTP — GitHub may prompt for 2FA
-            if credentials.get("totp_secret"):
-                totp_input = await page.query_selector(
-                    'input[name="app_otp"], input[id="app_totp"]'
-                )
-                if totp_input:
+            # Check if we landed on a 2FA / TOTP page
+            totp_input = await page.query_selector(
+                'input[name="app_otp"], input[id="app_totp"], '
+                'input[autocomplete="one-time-code"]'
+            )
+
+            if totp_input:
+                if credentials.get("totp_secret"):
                     totp = pyotp.TOTP(credentials["totp_secret"])
                     await page.fill('input[name="app_otp"]', totp.now())
-                    # GitHub auto-submits TOTP after filling
+                    await page.wait_for_load_state("networkidle")
+                    logger.debug("github_totp_filled")
+                else:
+                    # No TOTP secret configured — user must enter code manually
+                    is_headless = not await page.evaluate("() => !!window.outerWidth && window.outerWidth > 0")
+                    if is_headless:
+                        raise AuthenticationError(
+                            "GitHub requires 2FA but no TOTP secret is configured. "
+                            "Set the TOTP secret in credentials, or use debug mode to enter the code manually."
+                        )
+                    logger.info("github_2fa_waiting", message="Waiting for user to enter 2FA code...")
+                    # Wait until we leave the 2FA page
+                    await page.wait_for_function(
+                        "() => !document.querySelector('input[name=\"app_otp\"]')",
+                        timeout=120_000,
+                    )
                     await page.wait_for_load_state("networkidle")
 
-            # Device verification prompt — user must confirm on their device
-            device_prompt = await page.query_selector(
-                'text=/[Dd]evice verification|[Gg]eräteverifizierung/'
-            )
-            if device_prompt:
+            # Check for device verification prompt
+            page_text = (await page.text_content("body") or "").lower()
+            if "device verification" in page_text or "geräteverifizierung" in page_text:
                 is_headless = not await page.evaluate("() => !!window.outerWidth && window.outerWidth > 0")
                 if is_headless:
                     raise AuthenticationError(
                         "GitHub requires device verification. Use debug mode (headed browser)."
                     )
                 logger.info("github_device_verify", message="Waiting for device verification...")
-                # Wait for the redirect after device approval
-                await page.wait_for_url("**github.com/**", timeout=120_000)
+                await page.wait_for_function(
+                    "() => !window.location.pathname.includes('sessions')",
+                    timeout=120_000,
+                )
+
+            # Verify we're past auth
+            if "sessions" in page.url or "login" in page.url:
+                raise AuthenticationError(
+                    f"GitHub login incomplete — still on {page.url}. "
+                    "Check credentials, 2FA, or use debug mode."
+                )
 
             logger.debug("github_auth_complete", url=page.url)
 
