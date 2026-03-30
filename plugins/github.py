@@ -5,6 +5,7 @@ import re
 from datetime import date, datetime
 
 import pyotp
+import structlog
 from playwright.async_api import Page
 
 from src.plugin_base import (
@@ -14,6 +15,8 @@ from src.plugin_base import (
     NavigationError,
     ProviderPlugin,
 )
+
+logger = structlog.get_logger()
 
 
 class GitHubPlugin(ProviderPlugin):
@@ -31,30 +34,65 @@ class GitHubPlugin(ProviderPlugin):
         return "https://github.com/login"
 
     @property
+    def supported_login_methods(self) -> list[str]:
+        return ["email", "google", "apple"]
+
+    @property
     def org_name(self) -> str:
         """GitHub organization name — set during authenticate() from credentials or env."""
         return self._org or os.getenv("GITHUB_ORG", "")
 
     async def authenticate(self, page: Page, credentials: dict) -> None:
-        """Log in to GitHub with username, password, and TOTP."""
-        # Capture org from credentials (set by CredentialStore from GITHUB_ORG env)
+        """Log in to GitHub. Supports email/password, Google, and Apple sign-in."""
         self._org = credentials.get("org", "")
+
         try:
+            login_method = credentials.get("login_method", "email")
+
+            if login_method != "email":
+                from src.oauth import handle_oauth_login
+                await handle_oauth_login(
+                    page, credentials,
+                    expected_url_pattern="**github.com/**",
+                )
+                return
+
+            # Standard email + password login
             await page.wait_for_selector('input[name="login"]', timeout=15000)
             await page.fill('input[name="login"]', credentials["email"])
             await page.fill('input[name="password"]', credentials["password"])
             await page.click('input[type="submit"]')
             await page.wait_for_load_state("networkidle")
 
-            # TOTP
+            # TOTP — GitHub may prompt for 2FA
             if credentials.get("totp_secret"):
-                totp_input = await page.query_selector('input[name="app_otp"]')
+                totp_input = await page.query_selector(
+                    'input[name="app_otp"], input[id="app_totp"]'
+                )
                 if totp_input:
                     totp = pyotp.TOTP(credentials["totp_secret"])
                     await page.fill('input[name="app_otp"]', totp.now())
-                    # GitHub auto-submits TOTP
+                    # GitHub auto-submits TOTP after filling
                     await page.wait_for_load_state("networkidle")
 
+            # Device verification prompt — user must confirm on their device
+            device_prompt = await page.query_selector(
+                'text=/[Dd]evice verification|[Gg]eräteverifizierung/'
+            )
+            if device_prompt:
+                is_headless = not await page.evaluate("() => !!window.outerWidth && window.outerWidth > 0")
+                if is_headless:
+                    raise AuthenticationError(
+                        "GitHub requires device verification. Use debug mode (headed browser)."
+                    )
+                logger.info("github_device_verify", message="Waiting for device verification...")
+                # Wait for the redirect after device approval
+                await page.wait_for_url("**github.com/**", timeout=120_000)
+
+            logger.debug("github_auth_complete", url=page.url)
+
+        except AuthenticationError:
+            raise
         except Exception as exc:
             raise AuthenticationError(f"GitHub login failed: {exc}") from exc
 
@@ -76,7 +114,6 @@ class GitHubPlugin(ProviderPlugin):
         """Parse payment history receipts from GitHub."""
         invoices = []
 
-        # GitHub payment history shows a list of receipts
         rows = await page.query_selector_all(
             '.payment-history tr, [data-testid="payment-history-row"], '
             "table tbody tr"
@@ -88,7 +125,6 @@ class GitHubPlugin(ProviderPlugin):
                 if not text:
                     continue
 
-                # Extract date and amount from row text
                 date_match = re.search(
                     r"(\w+ \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2})", text
                 )
@@ -104,7 +140,6 @@ class GitHubPlugin(ProviderPlugin):
                 amount = amount_match.group(1) if amount_match else None
                 invoice_id = f"GH-{invoice_date.isoformat()}"
 
-                # Look for receipt/PDF link
                 link = await row.query_selector('a[href*="receipt"], a[href*="invoice"]')
                 download_url = None
                 if link:
@@ -147,7 +182,6 @@ class GitHubPlugin(ProviderPlugin):
                 if len(body) > 0:
                     return body
 
-            # Try clicking a download link on the page
             async with page.expect_download() as download_info:
                 await page.click(
                     f'tr:has-text("{invoice.invoice_date.isoformat()}") a, '
