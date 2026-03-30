@@ -144,39 +144,51 @@ class GitHubPlugin(ProviderPlugin):
             raise NavigationError(f"GitHub billing navigation failed: {exc}") from exc
 
     async def get_invoice_list(self, page: Page) -> list[InvoiceInfo]:
-        """Parse payment history receipts from GitHub."""
+        """Parse payment history table from GitHub.
+
+        Table columns: Date | ID | Payment Method | Amount | Status | Receipt | Invoice
+        """
         invoices = []
 
-        rows = await page.query_selector_all(
-            '.payment-history tr, [data-testid="payment-history-row"], '
-            "table tbody tr"
-        )
+        # Wait for the table to render
+        try:
+            await page.wait_for_selector("table tbody tr", timeout=10000)
+        except Exception:
+            logger.warning("github_no_invoice_table")
+            return []
+
+        rows = await page.query_selector_all("table tbody tr")
 
         for row in rows:
             try:
-                text = (await row.text_content() or "").strip()
-                if not text:
+                cells = await row.query_selector_all("td")
+                if len(cells) < 5:
                     continue
 
-                date_match = re.search(
-                    r"(\w+ \d{1,2},? \d{4}|\d{4}-\d{2}-\d{2})", text
-                )
-                amount_match = re.search(r"(\$[\d,.]+)", text)
-
-                if not date_match:
-                    continue
-
-                invoice_date = self._parse_date(date_match.group(1))
+                # Column 0: Date (YYYY-MM-DD)
+                date_text = (await cells[0].text_content() or "").strip()
+                invoice_date = self._parse_date(date_text)
                 if invoice_date is None:
                     continue
 
-                amount = amount_match.group(1) if amount_match else None
-                invoice_id = f"GH-{invoice_date.isoformat()}"
+                # Column 1: ID (e.g., 49066003, Y942704N)
+                invoice_id = (await cells[1].text_content() or "").strip()
+                if not invoice_id:
+                    invoice_id = f"GH-{invoice_date.isoformat()}"
 
-                link = await row.query_selector('a[href*="receipt"], a[href*="invoice"]')
+                # Column 3: Amount (e.g., $35, $-10)
+                amount = (await cells[3].text_content() or "").strip() if len(cells) > 3 else None
+
+                # Column 6: Invoice download link (last column)
+                # Look for download links in Receipt (col 5) or Invoice (col 6)
                 download_url = None
-                if link:
-                    download_url = await link.get_attribute("href")
+                for col_idx in [6, 5]:
+                    if len(cells) > col_idx:
+                        link = await cells[col_idx].query_selector("a[href]")
+                        if link:
+                            download_url = await link.get_attribute("href")
+                            if download_url:
+                                break
 
                 invoices.append(
                     InvoiceInfo(
@@ -188,9 +200,11 @@ class GitHubPlugin(ProviderPlugin):
                         download_url=download_url,
                     )
                 )
+                logger.debug("github_invoice_found", id=invoice_id, date=str(invoice_date), amount=amount)
             except Exception:
                 continue
 
+        logger.info("github_invoices_parsed", count=len(invoices))
         return invoices
 
     @staticmethod
@@ -204,28 +218,35 @@ class GitHubPlugin(ProviderPlugin):
         return None
 
     async def download_invoice(self, page: Page, invoice: InvoiceInfo) -> bytes:
-        """Download a receipt PDF from GitHub."""
+        """Download a receipt/invoice PDF from GitHub."""
         try:
             if invoice.download_url:
                 url = invoice.download_url
                 if not url.startswith("http"):
                     url = f"https://github.com{url}"
+
+                # Try direct download first
                 resp = await page.request.get(url)
                 body = await resp.body()
                 if len(body) > 0:
                     return body
 
-            async with page.expect_download() as download_info:
-                await page.click(
-                    f'tr:has-text("{invoice.invoice_date.isoformat()}") a, '
-                    f'a:has-text("Receipt")'
-                )
-            download = await download_info.value
-            path = await download.path()
-            if path is None:
-                raise DownloadError("Download path is None")
-            with open(path, "rb") as f:
-                return f.read()
+            # Fallback: click the download link in the invoice row
+            # Find the row by invoice ID, then click the last download icon
+            row = await page.query_selector(f'tr:has-text("{invoice.invoice_id}")')
+            if row:
+                # Try Invoice column first (last), then Receipt column
+                links = await row.query_selector_all("a[href]")
+                for link in reversed(links):
+                    href = await link.get_attribute("href") or ""
+                    if href:
+                        dl_url = href if href.startswith("http") else f"https://github.com{href}"
+                        resp = await page.request.get(dl_url)
+                        body = await resp.body()
+                        if len(body) > 100:  # Skip tiny error responses
+                            return body
+
+            raise DownloadError(f"No download link found for {invoice.invoice_id}")
         except DownloadError:
             raise
         except Exception as exc:
