@@ -187,23 +187,19 @@ class GitHubPlugin(ProviderPlugin):
                 amount_el = await row.query_selector(".amount")
                 amount = (await amount_el.text_content() or "").strip() if amount_el else None
 
-                # Download URL — PDF link first (href ending in .pdf)
+                # Download URL — prefer invoice over receipt
                 download_url = None
-                pdf_link = await row.query_selector('a[href$=".pdf"]')
-                if pdf_link:
-                    download_url = await pdf_link.get_attribute("href")
 
-                # Fallback: receipt/invoice links
+                # 1. Invoice: <invoice-download data-url="...">
+                inv_dl = await row.query_selector("invoice-download[data-url]")
+                if inv_dl:
+                    download_url = await inv_dl.get_attribute("data-url")
+
+                # 2. Fallback: receipt PDF link
                 if not download_url:
-                    for selector in ['a[href*="receipt"]', 'a[href*="invoice"]']:
-                        link = await row.query_selector(selector)
-                        if link:
-                            href = await link.get_attribute("href") or ""
-                            # Append .pdf if not already
-                            if href and not href.endswith(".pdf"):
-                                href += ".pdf"
-                            download_url = href
-                            break
+                    pdf_link = await row.query_selector('a[href$=".pdf"]')
+                    if pdf_link:
+                        download_url = await pdf_link.get_attribute("href")
 
                 invoices.append(
                     InvoiceInfo(
