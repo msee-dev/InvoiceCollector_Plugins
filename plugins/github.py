@@ -144,51 +144,64 @@ class GitHubPlugin(ProviderPlugin):
             raise NavigationError(f"GitHub billing navigation failed: {exc}") from exc
 
     async def get_invoice_list(self, page: Page) -> list[InvoiceInfo]:
-        """Parse payment history table from GitHub.
+        """Parse payment history from GitHub.
 
-        Table columns: Date | ID | Payment Method | Amount | Status | Receipt | Invoice
+        GitHub uses li.Box-row elements (not a <table>):
+        - .date time → invoice date
+        - .id code span → transaction ID
+        - .amount → dollar amount
+        - a[href*=receipt], a[href*=invoice] → download links
         """
         invoices = []
 
-        # Wait for the table to render
+        # Wait for payment history rows to render
         try:
-            await page.wait_for_selector("table tbody tr", timeout=10000)
+            await page.wait_for_selector("li.Box-row", timeout=15000)
         except Exception:
-            logger.warning("github_no_invoice_table")
+            logger.warning("github_no_invoice_rows")
             return []
 
-        rows = await page.query_selector_all("table tbody tr")
+        rows = await page.query_selector_all("li.Box-row")
+        logger.debug("github_rows_found", count=len(rows))
 
         for row in rows:
             try:
-                cells = await row.query_selector_all("td")
-                if len(cells) < 5:
+                # Date
+                time_el = await row.query_selector(".date time, time")
+                if not time_el:
                     continue
-
-                # Column 0: Date (YYYY-MM-DD)
-                date_text = (await cells[0].text_content() or "").strip()
+                date_text = (await time_el.text_content() or "").strip()
                 invoice_date = self._parse_date(date_text)
                 if invoice_date is None:
                     continue
 
-                # Column 1: ID (e.g., 49066003, Y942704N)
-                invoice_id = (await cells[1].text_content() or "").strip()
+                # ID
+                id_el = await row.query_selector(".id code span, .id code, .id")
+                invoice_id = (await id_el.text_content() or "").strip() if id_el else ""
                 if not invoice_id:
                     invoice_id = f"GH-{invoice_date.isoformat()}"
 
-                # Column 3: Amount (e.g., $35, $-10)
-                amount = (await cells[3].text_content() or "").strip() if len(cells) > 3 else None
+                # Amount
+                amount_el = await row.query_selector(".amount")
+                amount = (await amount_el.text_content() or "").strip() if amount_el else None
 
-                # Column 6: Invoice download link (last column)
-                # Look for download links in Receipt (col 5) or Invoice (col 6)
+                # Download URL — try invoice link first, then receipt
                 download_url = None
-                for col_idx in [6, 5]:
-                    if len(cells) > col_idx:
-                        link = await cells[col_idx].query_selector("a[href]")
-                        if link:
-                            download_url = await link.get_attribute("href")
-                            if download_url:
-                                break
+                for selector in ['a[href*="invoice"]', 'a[href*="receipt"]', 'a[href*="download"]']:
+                    link = await row.query_selector(selector)
+                    if link:
+                        download_url = await link.get_attribute("href")
+                        if download_url:
+                            break
+
+                # Fallback: any link with a download icon
+                if not download_url:
+                    links = await row.query_selector_all("a[href]")
+                    for link in links:
+                        href = await link.get_attribute("href") or ""
+                        if "/receipt" in href or "/invoice" in href or "pdf" in href:
+                            download_url = href
+                            break
 
                 invoices.append(
                     InvoiceInfo(
