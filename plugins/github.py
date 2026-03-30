@@ -62,7 +62,7 @@ class GitHubPlugin(ProviderPlugin):
             await page.fill('input[name="login"]', credentials["email"])
             await page.fill('input[name="password"]', credentials["password"])
             await page.click('input[type="submit"]')
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_timeout(3000)
 
             # Check if we landed on a 2FA / TOTP page
             totp_input = await page.query_selector(
@@ -75,7 +75,7 @@ class GitHubPlugin(ProviderPlugin):
                     # Auto-fill from configured secret
                     totp = pyotp.TOTP(credentials["totp_secret"])
                     await page.fill('input[name="app_otp"]', totp.now())
-                    await page.wait_for_load_state("networkidle")
+                    await page.wait_for_timeout(3000)
                     logger.debug("github_totp_filled")
                 elif credentials.get("_totp_callback"):
                     # Request code from web UI
@@ -83,7 +83,7 @@ class GitHubPlugin(ProviderPlugin):
                     totp_callback = credentials["_totp_callback"]
                     code = await totp_callback()
                     await page.fill('input[name="app_otp"]', code)
-                    await page.wait_for_load_state("networkidle")
+                    await page.wait_for_timeout(3000)
                     logger.debug("github_totp_filled_from_ui")
                 else:
                     # No TOTP secret and no callback — wait for manual entry in headed mode
@@ -98,7 +98,7 @@ class GitHubPlugin(ProviderPlugin):
                         "() => !document.querySelector('input[name=\"app_otp\"]')",
                         timeout=120_000,
                     )
-                    await page.wait_for_load_state("networkidle")
+                    await page.wait_for_timeout(3000)
 
             # Check for device verification prompt
             page_text = (await page.text_content("body") or "").lower()
@@ -138,7 +138,8 @@ class GitHubPlugin(ProviderPlugin):
                 url = "https://github.com/settings/billing/payment-history"
 
             await page.goto(url, wait_until="domcontentloaded")
-            await page.wait_for_load_state("networkidle")
+            await page.wait_for_timeout(5000)
+            logger.debug("github_billing_page", url=page.url)
         except Exception as exc:
             raise NavigationError(f"GitHub billing navigation failed: {exc}") from exc
 
