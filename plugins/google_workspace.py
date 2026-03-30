@@ -436,6 +436,19 @@ class GoogleWorkspacePlugin(ProviderPlugin):
             if row_idx < 0 or row_idx >= len(rows):
                 raise DownloadError(f"Transaction row {row_idx} not found")
 
+            # Close any open detail panel first (prevents overlay interception)
+            close_btn = await frame.query_selector(
+                '[aria-label="Close"], [aria-label="Schließen"], '
+                'button:has-text("close"), div.b3id-close-button, '
+                '[data-tooltip="Close"], [data-tooltip="Schließen"]'
+            )
+            if close_btn:
+                try:
+                    await close_btn.click()
+                    await page.wait_for_timeout(1000)
+                except Exception:
+                    pass
+
             # Click the transaction row to open the detail panel
             await rows[row_idx].click()
             await page.wait_for_timeout(4000)
