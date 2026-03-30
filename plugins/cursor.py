@@ -133,13 +133,10 @@ class CursorPlugin(StripeProviderPlugin):
             return False
 
         # Check if we got through or hit a CAPTCHA error
-        error_el = await page.query_selector(
-            '[class*="error" i], [class*="alert" i], '
-            'text=/[Cc]an.t verify|nicht verifizieren|try again|erneut versuchen/'
-        )
-        if error_el:
-            error_text = await error_el.text_content()
-            logger.info("cursor_password_blocked", error=error_text)
+        page_text = await page.text_content("body") or ""
+        error_phrases = ["can't verify", "nicht verifizieren", "try again", "erneut versuchen", "unable to verify"]
+        if any(phrase in page_text.lower() for phrase in error_phrases):
+            logger.info("cursor_password_blocked", message="CAPTCHA verification error detected")
             return False
 
         # If we're on cursor.com already, password login worked
@@ -147,12 +144,8 @@ class CursorPlugin(StripeProviderPlugin):
             return True
 
         # If still on auth page, check if it's a CAPTCHA
-        captcha = await page.query_selector(
-            'iframe[src*="challenges.cloudflare"], '
-            '[class*="turnstile"], [id*="turnstile"], '
-            'text=/[Mm]ensch|[Hh]uman|[Vv]erif/'
-        )
-        if captcha:
+        captcha_phrases = ["mensch", "human", "verify", "verifizieren", "bestätigen"]
+        if any(phrase in page_text.lower() for phrase in captcha_phrases):
             return False
 
         # Might still be processing — give it a moment
