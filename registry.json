@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "updated_at": "2026-03-30",
+  "plugins": [
+    {
+      "name": "aws",
+      "description": "Collect invoices from AWS Billing Console. Supports root account login with optional TOTP 2FA.",
+      "author": "msee-dev",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["aws", "amazon", "cloud", "infrastructure"],
+      "py_url": "https://raw.githubusercontent.com/msee-dev/InvoiceCollector_Plugins/main/plugins/aws.py",
+      "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
+    },
+    {
+      "name": "hetzner",
+      "description": "Collect invoices from Hetzner Cloud Console. Supports accounts.hetzner.com login with optional TOTP.",
+      "author": "msee-dev",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["hetzner", "hosting", "cloud", "infrastructure"],
+      "py_url": "https://raw.githubusercontent.com/msee-dev/InvoiceCollector_Plugins/main/plugins/hetzner.py",
+      "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
+    },
+    {
+      "name": "github",
+      "description": "Collect invoices from GitHub organization billing. Supports login with TOTP and navigates payment history.",
+      "author": "msee-dev",
+      "version": "1.0.0",
+      "category": "tools",
+      "tags": ["github", "devtools", "git", "saas"],
+      "py_url": "https://raw.githubusercontent.com/msee-dev/InvoiceCollector_Plugins/main/plugins/github.py",
+      "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
+    },
+    {
+      "name": "cursor",
+      "description": "Collect invoices from Cursor IDE via Stripe billing portal. Authenticates through WorkOS AuthKit.",
+      "author": "msee-dev",
+      "version": "1.0.0",
+      "category": "tools",
+      "tags": ["cursor", "ide", "stripe", "saas"],
+      "py_url": "https://raw.githubusercontent.com/msee-dev/InvoiceCollector_Plugins/main/plugins/cursor.py",
+      "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
+    },
+    {
+      "name": "google_cloud",
+      "description": "Collect invoices from Google Cloud Console billing. Supports Google account login with optional TOTP.",
+      "author": "msee-dev",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["google", "gcp", "cloud", "infrastructure"],
+      "py_url": "https://raw.githubusercontent.com/msee-dev/InvoiceCollector_Plugins/main/plugins/google_cloud.py",
+      "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
+    },
+    {
+      "name": "anthropic",
+      "description": "Collect invoices from Anthropic console via Stripe billing portal.",
+      "author": "msee-dev",
+      "version": "1.0.0",
+      "category": "ai",
+      "tags": ["anthropic", "claude", "ai", "stripe"],
+      "py_url": "https://raw.githubusercontent.com/msee-dev/InvoiceCollector_Plugins/main/plugins/anthropic.py",
+      "repo_url": "https://github.com/msee-dev/InvoiceCollector_Plugins"
+    },
+    {
+      "name": "vercel",
+      "description": "Collect invoices from Vercel via Stripe billing portal. Supports email/password login.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["vercel", "hosting", "stripe", "saas"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/vercel.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "digitalocean",
+      "description": "Collect invoices from DigitalOcean. Navigates to the billing history and downloads PDF invoices.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["digitalocean", "hosting", "cloud", "infrastructure"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/digitalocean.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "cloudflare",
+      "description": "Collect invoices from Cloudflare's billing section. Supports email/password authentication.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["cloudflare", "cdn", "dns", "security"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/cloudflare.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "netlify",
+      "description": "Collect invoices from Netlify via Stripe billing portal.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["netlify", "hosting", "jamstack", "stripe"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/netlify.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "linear",
+      "description": "Collect invoices from Linear via Stripe billing portal.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "tools",
+      "tags": ["linear", "project-management", "stripe", "saas"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/linear.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "notion",
+      "description": "Collect invoices from Notion workspace billing via Stripe.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "tools",
+      "tags": ["notion", "productivity", "stripe", "saas"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/notion.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "slack",
+      "description": "Collect invoices from Slack workspace billing page.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "tools",
+      "tags": ["slack", "messaging", "saas", "communication"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/slack.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "figma",
+      "description": "Collect invoices from Figma organization billing via Stripe.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "design",
+      "tags": ["figma", "design", "stripe", "saas"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/figma.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "railway",
+      "description": "Collect invoices from Railway via Stripe billing portal.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["railway", "hosting", "paas", "stripe"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/railway.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    },
+    {
+      "name": "render",
+      "description": "Collect invoices from Render via Stripe billing portal.",
+      "author": "community",
+      "version": "1.0.0",
+      "category": "cloud",
+      "tags": ["render", "hosting", "paas", "stripe"],
+      "yaml_url": "https://raw.githubusercontent.com/invoice-collector/community-plugins/main/plugins/render.yaml",
+      "repo_url": "https://github.com/invoice-collector/community-plugins"
+    }
+  ]
+}

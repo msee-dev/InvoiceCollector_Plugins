@@ -1,0 +1,86 @@
+# Example YAML Provider Definition
+# ---------------------------------
+# Drop a .yaml file like this into src/plugins/ to create a new provider
+# WITHOUT writing any Python code.
+#
+# This works best for providers that use Stripe for billing (most SaaS).
+# For non-Stripe providers, you can define custom invoice table selectors.
+#
+# To create a new provider:
+#   1. Copy this file and rename it (e.g., vercel.yaml)
+#   2. Set name, login_url, and billing_portal_url
+#   3. Define the auth_steps sequence
+#   4. Add credentials to .env: {NAME}_EMAIL, {NAME}_PASSWORD
+#   5. Add to config.yaml under providers:
+#   6. Test: python -m src.main run --provider {name} --headed
+
+# --- Required fields ---
+
+# Unique provider slug (used in filenames, config, .env prefix)
+name: example
+
+# URL to the provider's login page
+login_url: https://example.com/login
+
+# --- Stripe billing (most common) ---
+
+# URL to the provider's billing/settings page that links to Stripe.
+# If set, the Stripe invoice parser is used automatically.
+# Leave blank/omit for non-Stripe providers.
+billing_portal_url: https://example.com/settings/billing
+
+# --- Authentication steps ---
+# Define the login flow as a sequence of actions.
+# Available actions: goto, fill, click, wait, wait_for_navigation,
+#                    wait_for_url, wait_for_selector, totp
+#
+# Use {{email}}, {{password}}, {{totp_secret}} to reference credentials.
+
+auth_steps:
+  # Step 1: Fill email
+  - action: fill
+    selector: 'input[type="email"]'
+    value: "{{email}}"
+
+  # Step 2: Click continue/next
+  - action: click
+    selector: 'button[type="submit"]'
+
+  # Step 3: Wait for password page
+  - action: wait_for_navigation
+
+  # Step 4: Fill password
+  - action: fill
+    selector: 'input[type="password"]'
+    value: "{{password}}"
+
+  # Step 5: Click sign in
+  - action: click
+    selector: 'button[type="submit"]'
+
+  # Step 6: Wait for login to complete
+  - action: wait_for_navigation
+
+  # Step 7: Handle TOTP (optional — only runs if totp_secret is set)
+  - action: totp
+    selector: 'input[name="code"]'
+    submit_selector: 'button[type="submit"]'
+
+# --- Non-Stripe providers (optional) ---
+# If billing_portal_url is NOT set, define custom navigation and parsing:
+
+# invoice_steps:
+#   - action: goto
+#     url: https://example.com/billing/invoices
+#   - action: wait_for_selector
+#     selector: "table tbody tr"
+
+# invoice_table:
+#   row_selector: "table tbody tr"
+#   date_column: 0          # 0-based column index for the date
+#   id_column: 1            # column index for invoice ID
+#   amount_column: 2        # column index for amount
+#   date_format: "%Y-%m-%d" # strptime format for parsing dates
+#   pdf_link_selector: 'a[href*="pdf"]'
+
+# base_url: https://example.com  # prepended to relative download URLs
