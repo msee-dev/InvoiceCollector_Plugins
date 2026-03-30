@@ -133,9 +133,9 @@ class GitHubPlugin(ProviderPlugin):
         try:
             org = self.org_name
             if org:
-                url = f"https://github.com/organizations/{org}/billing/payment-history"
+                url = f"https://github.com/organizations/{org}/billing/history"
             else:
-                url = "https://github.com/settings/billing/payment-history"
+                url = "https://github.com/account/billing/history"
 
             await page.goto(url, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
