@@ -5,3 +5,5 @@ plugins/__pycache__/github.cpython-313.pyc
 plugins/__pycache__/google_cloud.cpython-313.pyc
 plugins/__pycache__/google_workspace.cpython-313.pyc
 plugins/__pycache__/hetzner.cpython-313.pyc
+plugins/__pycache__/amazon_com.cpython-313.pyc
+plugins/__pycache__/amazon_de.cpython-313.pyc
