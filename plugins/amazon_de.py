@@ -42,7 +42,7 @@ class AmazonDePlugin(ProviderPlugin):
 
     @property
     def login_url(self) -> str:
-        return f"{BASE_URL}/ap/signin"
+        return f"{BASE_URL}/gp/sign-in.html"
 
     async def authenticate(self, page: Page, credentials: dict) -> None:
         """Log in to Amazon.de with email, password, and optional TOTP."""
@@ -50,18 +50,19 @@ class AmazonDePlugin(ProviderPlugin):
             # Dismiss cookie consent banner if present
             await self._dismiss_cookie_consent(page)
 
-            # Detect CAPTCHA
-            captcha = await page.query_selector(
+            # Wait for either the email field or a CAPTCHA challenge
+            await page.wait_for_selector(
+                'input[name="email"], #ap_email, '
                 '#captchacharacters, input[name="captchacharacters"], '
-                '#auth-captcha-image, img[alt*="captcha" i]'
+                '#auth-captcha-image, img[alt*="captcha" i], '
+                '#cvf-page-content, [data-action="cvf"]',
+                timeout=15000,
             )
-            if captcha:
-                raise AuthenticationError(
-                    "Amazon.de login blocked by CAPTCHA — run in headed mode "
-                    "to solve it manually"
-                )
 
-            # Email step
+            # Handle CAPTCHA / puzzle challenge
+            await self._handle_captcha(page, credentials)
+
+            # Email step — re-check after potential CAPTCHA resolution
             await page.wait_for_selector(
                 'input[name="email"], #ap_email', timeout=15000
             )
@@ -283,6 +284,39 @@ class AmazonDePlugin(ProviderPlugin):
             raise DownloadError(
                 f"Amazon.de download failed for {invoice.invoice_id}: {exc}"
             ) from exc
+
+    @staticmethod
+    async def _handle_captcha(page: Page, credentials: dict) -> None:
+        """Detect and handle CAPTCHA / puzzle challenges on Amazon."""
+        captcha_selectors = (
+            '#captchacharacters, input[name="captchacharacters"], '
+            '#auth-captcha-image, img[alt*="captcha" i], '
+            '#cvf-page-content, [data-action="cvf"]'
+        )
+        captcha = await page.query_selector(captcha_selectors)
+        if not captcha:
+            return
+
+        # Check if we have a headed browser where user can solve it
+        body_text = await page.text_content("body") or ""
+        logger.warning(
+            "captcha_detected",
+            hint="Amazon is showing a CAPTCHA/puzzle challenge",
+        )
+
+        # Wait up to 120s for user to solve the CAPTCHA in headed mode
+        # In headless mode this will timeout and raise an error
+        try:
+            await page.wait_for_selector(
+                'input[name="email"], #ap_email',
+                timeout=120000,
+            )
+            logger.info("captcha_resolved", hint="User solved CAPTCHA")
+        except Exception:
+            raise AuthenticationError(
+                "Amazon.de blocked by CAPTCHA/puzzle challenge — "
+                "run with debug mode (headed browser) to solve it manually"
+            )
 
     @staticmethod
     async def _dismiss_cookie_consent(page: Page) -> None:
